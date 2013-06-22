@@ -50,7 +50,7 @@ static void XMLCALL start_element(void *data, const char *name, const char **att
 			in_time = 1;
 		}
 		
-		if (!strcmp(name, "title"))
+		else if (!strcmp(name, "title"))
 		{
 			char buf[] = "<h1>";
 			fwrite(buf, 1, sizeof(buf) - 1, html);
@@ -62,6 +62,22 @@ static void XMLCALL start_element(void *data, const char *name, const char **att
 			char buf[] = "<hr>\n";
 			fwrite(buf, 1, sizeof(buf) - 1, html);
 			in_content = 1;
+		}
+		
+		else if (!strcmp(name, "link"))
+		{
+			int i;
+			for (i = 0; atts[i]; i += 2)
+			{
+				if (!strcmp(atts[i], "href"))
+				{
+					char buf1[] = "<p><a href=\"";
+					fwrite(buf1, 1, sizeof(buf1) - 1, html);
+					fwrite(atts[i + 1], 1, strlen(atts[i + 1]), html);
+					char buf2[] = "\">原文</a></p>";
+					fwrite(buf2, 1, sizeof(buf2) - 1, html);
+				}
+			}
 		}
 	}
 }
@@ -88,7 +104,7 @@ static void XMLCALL end_element(void *data, const char *name)
 			in_time = 0;
 		}
 		
-		if (!strcmp(name, "title"))
+		else if (!strcmp(name, "title"))
 		{
 			char buf[] = "</h1>\n";
 			fwrite(buf, 1, sizeof(buf) - 1, html);
