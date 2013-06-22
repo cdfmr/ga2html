@@ -28,12 +28,13 @@ static void XMLCALL start_element(void *data, const char *name, const char **att
 		char *htmlfile = malloc(strlen(html_prefix) + 16);
 		sprintf(htmlfile, "%s/%04d.html", html_prefix, ++html_index);
 		html = fopen(htmlfile, "wb");
+		free(htmlfile);
 		if (!html)
 		{
 			fprintf(stderr, "Can not create %s.\n", htmlfile);
 			error = 1;
+			return;
 		}
-		free(htmlfile);
 
 		char buf[] = "<html><head><meta content=\"text/html; charset=UTF-8\" "
 					 "http-equiv=\"content-type\"></head>";
