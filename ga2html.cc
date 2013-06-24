@@ -165,8 +165,8 @@ private:
         if (m_options->hline_after_content)
             output << "<hr>";
         if (!m_options->link_text.empty() && !m_html->link.empty()) {
-            output << "<a href=\"" << m_html->link << "\">"
-                   << m_options->link_text << "</a>";
+            output << "<p><a href=\"" << m_html->link << "\">"
+                   << m_options->link_text << "</a></p>";
         }
 
         output << "</body>";
