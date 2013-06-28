@@ -531,10 +531,11 @@ int main(int argc, char *argv[])
 
     string bin_path = get_bin_path();
     if (bin_path.empty()) bin_path = extract_path(string(argv[0]));
-    copy_file(bin_path + dir_sep + "style.css",
-              opt.output_dir + dir_sep + "style.css");
-    copy_file(bin_path + dir_sep + "jquery.js",
-              opt.output_dir + dir_sep + "jquery.js");
+    if (!bin_path.empty()) bin_path += dir_sep;
+    string out_path = opt.output_dir;
+    if (!out_path.empty()) out_path += dir_sep;
+    copy_file(bin_path + "style.css", out_path + "style.css");
+    copy_file(bin_path + "jquery.js", out_path + "jquery.js");
 
     for (size_t i = 0; i < files.size(); i++) {
         cout << "Converting " << files[i] << "...";
