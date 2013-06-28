@@ -11,8 +11,12 @@
 #include <windows.h>
 #define dir_sep '\\'
 #else
+#include <unistd.h>
 #include <sys/stat.h>
 #define dir_sep '/'
+#endif
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
 #endif
 
 using namespace std;
@@ -32,6 +36,7 @@ typedef struct tag_html
 typedef struct tag_state
 {
     int depth;
+    bool in_root_title;
     bool in_author;
     bool in_published;
     bool in_title;
@@ -44,9 +49,10 @@ typedef struct tag_options
     bool write_author;
     bool hline_before_content;
     bool hline_after_content;
-    string style_sheet;
+    int article_count;
     string link_text;
     string output_dir;
+    string time_prefix;
 } options;
 
 class conventer
@@ -58,6 +64,7 @@ public:
         , m_options(opt)
         , m_html(NULL)
         , m_index(0)
+        , m_count(0)
     {
         assert(!xml.empty() && opt);
         memset(&m_state, 0, sizeof(m_state));
@@ -71,6 +78,7 @@ public:
 
     ~conventer()
     {
+        close_html();
         delete(m_html);
     }
 
@@ -94,8 +102,9 @@ public:
             done = input.eof();
             if (XML_Parse(parser, buffer, input.gcount(), done)
                 == XML_STATUS_ERROR) {
-                cout << XML_ErrorString(XML_GetErrorCode(parser))
-                     << "at line "
+                cout << m_xml << ": "
+                     << XML_ErrorString(XML_GetErrorCode(parser))
+                     << " at line "
                      << XML_GetCurrentLineNumber(parser)
                      << endl;
                 break;
@@ -110,67 +119,136 @@ private:
     string m_xml;
     string m_base;
     const options *m_options;
+    string m_title;
     html *m_html;
     state m_state;
+    ofstream m_output;
     int m_index;
+    int m_count;
+
+    bool open_html()
+    {
+        string html = m_base;
+        if (!m_options->time_prefix.empty())
+            html = html + '_' + m_options->time_prefix;
+        if (m_options->article_count != 0) {
+            char file_index[5];
+            sprintf(file_index, "%04d", m_index++);
+            html = html + '_' + file_index;
+        }
+        html.append(".html");
+        if (!m_options->output_dir.empty())
+            html = m_options->output_dir + dir_sep + html;
+        m_output.open(html.c_str(), ios::out | ios::binary);
+        if (!m_output.is_open()) {
+            cout << "Can not open file " << html << endl;
+            return false;
+        }
+
+        m_output << "<html>" << endl;
+        m_output << "<head>" << endl;
+        m_output << "<meta content=\"text/html; charset=UTF-8\" "
+                 << "http-equiv=\"content-type\">"
+                 << endl;
+        m_output << "<link rel=\"stylesheet\" type=\"text/css\" "
+                 << "href=\"style.css\" media=\"all\">"
+                 << endl;
+        m_output << "<script type=\"text/javascript\" src=\"jquery.js\">"
+                 << "</script>"
+                 << endl;
+        m_output << "<script type=\"text/javascript\">"          << endl
+                 << "$(document).ready(function() {"             << endl
+                 << "  $(\".msg_body\").hide();"                 << endl
+                 << "  $(\".msg_head\").click(function() {"      << endl
+                 << "    var interval = 250;"                    << endl
+                 << "    var msg = $(this).next(\".msg_body\");" << endl
+                 << "    if (msg.is(\":hidden\")) {"             << endl
+//               << "      $(\".msg_body\").hide();"             << endl
+                 << "      msg.slideDown(interval);"             << endl
+                 << "      $(\"html,body\").animate({scrollTop: "
+                 <<          "$(this).offset().top}, interval);" << endl
+                 << "    } else {"                               << endl
+                 << "      msg.slideUp(interval);"               << endl
+                 << "    }"                                      << endl
+                 << "  });"                                      << endl
+                 << "});"                                        << endl
+                 << "</script>"                                  << endl;
+        string &title = m_options->article_count != 1 ? m_title :
+                        m_html->title;
+        m_output << "<title>" << title << "</title>" << endl;
+        m_output << "</head>" << endl;
+        m_output << "<body>" << endl;
+        if (m_options->article_count != 1) {
+            m_output << "<div align=\"center\"><h1><strong>"
+                     << m_title
+                     << "</strong></h1></div>" << endl;
+            m_output << "<div class=\"msg_list\">" << endl;
+        }
+        return true;
+    }
+
+    void close_html()
+    {
+        if (m_output.is_open()) {
+            if (m_options->article_count != 1)
+                m_output << "</div>" << endl;
+            m_output << "</body>" << endl;
+            m_output << "</html>" << endl;
+            m_output.close();
+            m_count = 0;
+        }
+    }
 
     void write_html()
     {
-        char file_index[5];
-        sprintf(file_index, "%04d", m_index++);
-        string html = m_base + '_' + file_index + ".html";
-        if (!m_options->output_dir.empty())
-            html = m_options->output_dir + dir_sep + html;
-        ofstream output(html.c_str(), ios::out | ios::binary);
-        if (!output.is_open()) {
-            cout << "Can not open file " << html << endl;
+        if (!m_output.is_open() && !open_html())
             goto clean;
+
+        if (!m_options->time_prefix.empty() &&
+            m_html->published.find(m_options->time_prefix) != 0)
+            goto clean;
+
+        if (m_options->article_count != 1) {
+            m_output << "<p class=\"msg_head\">◇ "
+                     << m_html->title
+                     << "</p>" << endl;
+            m_output << "<div class=\"msg_body\">" << endl;
         }
 
-        output << "<html>";
-
-        output << "<head>";
-        output << "<meta content=\"text/html; charset=UTF-8\" "
-               << "http-equiv=\"content-type\">";
-        output << "<title>" << m_html->title << "</title>";
-        if (!m_options->style_sheet.empty()) {
-            output << "<link rel=\"stylesheet\" type=\"text/css\" "
-                   << "href=\"" << m_options->style_sheet << "\" "
-                   << "media=\"all\">";
-        }
-        output << "</head>";
-
-        output << "<body>";
-
-        output << "<h1>" << m_html->title << "</h1>";
+        m_output << "<h1>" << m_html->title << "</h1>";
         if (m_options->write_author) {
-            output << "<p>";
-            output << m_html->author;
+            m_output << "<p>";
+            m_output << m_html->author;
             if (!m_html->author.empty())
-                output << " @ ";
+                m_output << " @ ";
             replace(m_html->published.begin(), m_html->published.end(),
                     'T', ' ');
             replace(m_html->published.begin(), m_html->published.end(),
                     'Z', ' ');
-            output << m_html->published;
-            output << "</p>";
+            m_output << m_html->published;
+            m_output << "</p>";
+            m_output << endl;
         }
 
         if (m_options->hline_before_content)
-            output << "<hr>";
+            m_output << "<hr>" << endl;
         if (!m_html->content.empty())
-            output << m_html->content;
+            m_output << m_html->content;
         else if (!m_html->summary.empty())
-            output << m_html->summary;
+            m_output << m_html->summary;
+        m_output << endl;
         if (m_options->hline_after_content)
-            output << "<hr>";
+            m_output << "<hr>" << endl;
         if (!m_options->link_text.empty() && !m_html->link.empty()) {
-            output << "<p><a href=\"" << m_html->link << "\">"
-                   << m_options->link_text << "</a></p>";
+            m_output << "<p><a href=\"" << m_html->link << "\">"
+                     << m_options->link_text << "</a></p>" << endl;
         }
 
-        output << "</body>";
-        output << "</html>";
+        if (m_options->article_count != 1)
+            m_output << "</div>" << endl;
+
+        if (++m_count == m_options->article_count)
+            close_html();
 
     clean:
         delete(m_html);
@@ -189,9 +267,13 @@ private:
 
         obj->m_state.depth++;
 
-        if (!strcmp(name, "entry") && obj->m_state.depth == 2) {
-            if (obj->m_html) delete(obj->m_html);
-            obj->m_html = new html;
+        if (obj->m_state.depth == 2) {
+            if (!strcmp(name, "title"))
+                obj->m_state.in_root_title = true;
+            else if (!strcmp(name, "entry")) {
+                if (obj->m_html) delete(obj->m_html);
+                obj->m_html = new html;
+            }
         }
 
         if (!obj->m_html) return;
@@ -223,6 +305,12 @@ private:
         conventer *obj = (conventer *)data;
         if (!obj) return;
 
+        if (!strcmp(name, "title") && obj->m_state.depth == 2) {
+            obj->m_state.in_root_title = false;
+            obj->m_state.depth--;
+            return;
+        }
+
         if (!obj->m_html) {
             obj->m_state.depth--;
             return;
@@ -251,18 +339,22 @@ private:
     static void XMLCALL handle_data(void *data, const char *content, int length)
     {
         conventer *obj = (conventer *)data;
-        if (!obj || !obj->m_html) return;
+        if (!obj) return;
 
-        if (obj->m_state.in_author)
-            obj->m_html->author.append(content, length);
-        else if (obj->m_state.in_published)
-            obj->m_html->published.append(content, length);
-        else if (obj->m_state.in_title)
-            obj->m_html->title.append(content, length);
-        else if (obj->m_state.in_summary)
-            obj->m_html->summary.append(content, length);
-        else if (obj->m_state.in_content)
-            obj->m_html->content.append(content, length);
+        if (obj->m_state.in_root_title)
+            obj->m_title.append(content, length);
+        else if (obj->m_html) {
+            if (obj->m_state.in_author)
+                obj->m_html->author.append(content, length);
+            else if (obj->m_state.in_published)
+                obj->m_html->published.append(content, length);
+            else if (obj->m_state.in_title)
+                obj->m_html->title.append(content, length);
+            else if (obj->m_state.in_summary)
+                obj->m_html->summary.append(content, length);
+            else if (obj->m_state.in_content)
+                obj->m_html->content.append(content, length);
+        }
     }
 };
 
@@ -343,6 +435,26 @@ bool create_directory(const string &path)
            mkdir(dir.c_str(), 0755) == 0;
 }
 
+string get_bin_path()
+{
+    string bin_path;
+
+    char buffer[1024];
+#ifdef __WIN32
+    if (GetModuleFileName(0, buffer, sizeof(buffer)) != 0)
+#elif defined __APPLE__
+    uint32_t size = sizeof(buffer);
+    if (_NSGetExecutablePath(buffer, &size) == 0)
+#else
+    char proc_exe[32];
+    sprintf(proc_exe, "/proc/%d/exe", getpid());
+    if (readlink(proc_exe, buffer, sizeof(buffer)) != -1)
+#endif
+        bin_path = extract_path(string(buffer));
+
+    return bin_path;
+}
+
 void copy_file(const string &source, const string &target)
 {
 #ifdef __WIN32
@@ -366,9 +478,10 @@ int main(int argc, char *argv[])
     opt.write_author = false;
     opt.hline_before_content = false;
     opt.hline_after_content = false;
+    opt.article_count = 1;
 
+    bool error = false;
     vector<string> files;
-
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "-a"))
             opt.write_author = true;
@@ -376,8 +489,9 @@ int main(int argc, char *argv[])
             opt.hline_before_content = true;
         else if (!strcmp(argv[i], "-ha"))
             opt.hline_after_content = true;
-        else if (!strcmp(argv[i], "-s")) {
-            if (++i < argc) opt.style_sheet = to_utf8(argv[i]);
+        else if (!strcmp(argv[i], "-n")) {
+            if (++i < argc) opt.article_count = atoi(argv[i]);
+            if (opt.article_count < 0) error = true;
         }
         else if (!strcmp(argv[i], "-l")) {
             if (++i < argc) opt.link_text = to_utf8(argv[i]);
@@ -385,20 +499,25 @@ int main(int argc, char *argv[])
         else if (!strcmp(argv[i], "-o")) {
             if (++i < argc) opt.output_dir = argv[i];
         }
+        else if (!strcmp(argv[i], "-t")) {
+            if (++i < argc) opt.time_prefix = argv[i];
+        }
         else if (argv[i][0] != '-')
             files.push_back(argv[i]);
+        else
+            error = true;
     }
 
-    if (files.empty()) {
+    if (error || files.empty()) {
         cout << "Convert xml files produced by GReader-Archive into html pages"
              << endl << endl;
         cout << "Usage: ga2html [-a] [-hb] [-ha] "
-             << "[-s css] [-l link] [-o dir] xmlfiles"
+             << "[-n num] [-l link] [-o dir] xmlfiles"
              << endl;
         cout << "-a\tInclude author & publish date in html files" << endl
              << "-hb\tInsert a horizontal line before content" << endl
              << "-ha\tAppend a horizontal line after content" << endl
-             << "-s css\tStyle sheet to be used in html files" << endl
+             << "-n num\tArticle count of per html file, 0 for all" << endl
              << "-l link\tText for original link" << endl
              << "-o dir\tOutput directory" << endl;
         return -1;
@@ -410,14 +529,17 @@ int main(int argc, char *argv[])
         return -1;
     }
 
-    if (!opt.style_sheet.empty()) {
-        string sheet_file = extract_filename(opt.style_sheet);
-        copy_file(opt.style_sheet, opt.output_dir + dir_sep + sheet_file);
-        opt.style_sheet = sheet_file;
-    }
+    string bin_path = get_bin_path();
+    if (bin_path.empty()) bin_path = extract_path(string(argv[0]));
+    copy_file(bin_path + dir_sep + "style.css",
+              opt.output_dir + dir_sep + "style.css");
+    copy_file(bin_path + dir_sep + "jquery.js",
+              opt.output_dir + dir_sep + "jquery.js");
 
     for (size_t i = 0; i < files.size(); i++) {
+        cout << "Converting " << files[i] << "...";
         conventer(files[i], &opt).process();
+        cout << " Done." << endl;
     }
 
     return 0;
