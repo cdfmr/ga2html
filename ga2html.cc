@@ -457,6 +457,8 @@ string get_bin_path()
 
 void copy_file(const string &source, const string &target)
 {
+    if (source == target) return;
+
 #ifdef __WIN32
     CopyFile(source.c_str(), target.c_str(), FALSE);
 #else
