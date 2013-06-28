@@ -201,11 +201,11 @@ private:
 
     void write_html()
     {
-        if (!m_output.is_open() && !open_html())
-            goto clean;
-
         if (!m_options->time_prefix.empty() &&
             m_html->published.find(m_options->time_prefix) != 0)
+            goto clean;
+
+        if (!m_output.is_open() && !open_html())
             goto clean;
 
         if (m_options->article_count != 1) {
