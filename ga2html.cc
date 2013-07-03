@@ -173,14 +173,15 @@ private:
                  << "  });"                                      << endl
                  << "});"                                        << endl
                  << "</script>"                                  << endl;
-        string &title = m_options->article_count != 1 ? m_title :
-                        m_html->title;
+        string title = m_options->article_count == 1 ? m_html->title :
+                       m_options->time_prefix.empty() ? m_title :
+                       m_title + " " + m_options->time_prefix;
         m_output << "<title>" << title << "</title>" << endl;
         m_output << "</head>" << endl;
         m_output << "<body>" << endl;
         if (m_options->article_count != 1) {
             m_output << "<div align=\"center\"><h1><strong>"
-                     << m_title
+                     << title
                      << "</strong></h1></div>" << endl;
             m_output << "<div class=\"msg_list\">" << endl;
         }
